@@ -354,7 +354,7 @@ func (s *connectClientSender) Send(message any) error {
 	return nil // must be a literal nil: nil *Error is a non-nil error
 }
 
-func (s *connectClientSender) Close(_ error) error {
+func (s *connectClientSender) Close(error) error {
 	return s.duplexCall.CloseWrite()
 }
 

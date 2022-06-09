@@ -354,7 +354,7 @@ func (r *grpcClientReceiver) Receive(message any) error {
 	// need to read the body to EOF.
 	_ = discard(r.duplexCall)
 	mergeHeaders(r.trailer, r.duplexCall.ResponseTrailer())
-	serverErr := grpcErrorFromHeaders(r.bufferPool, r.protobuf, r.trailer, nil /* gRPC should send error in trailers */)
+	serverErr := grpcErrorFromHeaders(r.bufferPool, r.protobuf, nil, r.trailer)
 	if serverErr != nil && (errors.Is(err, io.EOF) || !errors.Is(serverErr, errTrailersWithoutGRPCStatus)) {
 		// We've either:
 		//   - Cleanly read until the end of the response body and *not* received
@@ -428,7 +428,7 @@ func (r *grpcWebClientReceiver) Receive(message any) error {
 	}
 	// See if the server sent an explicit error in the gRPC-Web trailers.
 	mergeHeaders(r.trailer, r.unmarshaler.WebTrailer())
-	serverErr := grpcErrorFromHeaders(r.bufferPool, r.protobuf, r.trailer, r.header)
+	serverErr := grpcErrorFromHeaders(r.bufferPool, r.protobuf, r.header, r.trailer)
 	if serverErr != nil && (errors.Is(err, io.EOF) || !errors.Is(serverErr, errTrailersWithoutGRPCStatus)) {
 		// We've either:
 		//   - Cleanly read until the end of the response body and *not* received
@@ -723,8 +723,8 @@ func grpcValidateResponse(
 	if err := grpcErrorFromHeaders(
 		bufferPool,
 		protobuf,
-		nil,
 		response.Header,
+		nil,
 	); err != nil && !errors.Is(err, errTrailersWithoutGRPCStatus) {
 		// Per the specification, only the HTTP status code and Content-Type should
 		// be treated as headers. The rest should be treated as trailing metadata.
@@ -768,7 +768,9 @@ func grpcHTTPToCode(httpCode int) Code {
 // binary Protobuf format, even if the messages in the request/response stream
 // use a different codec. Consequently, this function needs a Protobuf codec to
 // unmarshal error information in the headers.
-func grpcErrorFromHeaders(bufferPool *bufferPool, protobuf Codec, trailer, header http.Header) *Error {
+func grpcErrorFromHeaders(bufferPool *bufferPool, protobuf Codec, header, trailer http.Header) *Error {
+	// Save where we found grpc-status header and re-use it to search for message/details
+	headerWithStatus := trailer
 	codeHeader := trailer.Get(grpcHeaderStatus)
 	if codeHeader == "" {
 		// Can send trailers with response headers if there is no message.
@@ -776,6 +778,7 @@ func grpcErrorFromHeaders(bufferPool *bufferPool, protobuf Codec, trailer, heade
 		if codeHeader == "" {
 			return errTrailersWithoutGRPCStatus
 		}
+		headerWithStatus = header
 	}
 	if codeHeader == "0" {
 		return nil
@@ -785,17 +788,11 @@ func grpcErrorFromHeaders(bufferPool *bufferPool, protobuf Codec, trailer, heade
 	if err != nil {
 		return errorf(CodeInternal, "gRPC protocol error: invalid error code %q", codeHeader)
 	}
-	messageHeader := trailer.Get(grpcHeaderMessage)
-	if messageHeader == "" {
-		messageHeader = header.Get(grpcHeaderMessage)
-	}
+	messageHeader := headerWithStatus.Get(grpcHeaderMessage)
 	message := grpcPercentDecode(bufferPool, messageHeader)
 	retErr := NewError(Code(code), errors.New(message))
 
-	detailsBinaryEncoded := trailer.Get(grpcHeaderDetails)
-	if len(detailsBinaryEncoded) == 0 {
-		detailsBinaryEncoded = header.Get(grpcHeaderDetails)
-	}
+	detailsBinaryEncoded := headerWithStatus.Get(grpcHeaderDetails)
 	if len(detailsBinaryEncoded) > 0 {
 		detailsBinary, err := DecodeBinaryHeader(detailsBinaryEncoded)
 		if err != nil {

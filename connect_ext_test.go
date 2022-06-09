@@ -92,7 +92,7 @@ func TestServer(t *testing.T) {
 			)
 			assert.Equal(t, connect.CodeOf(err), connect.CodeInvalidArgument)
 		})
-		t.Run("ping_timout", func(t *testing.T) {
+		t.Run("ping_timeout", func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
 			defer cancel()
 			request := connect.NewRequest(&pingv1.PingRequest{})
@@ -482,7 +482,9 @@ func TestGRPCMissingTrailersError(t *testing.T) {
 	server := httptest.NewUnstartedServer(trimTrailers(mux))
 	server.EnableHTTP2 = true
 	server.StartTLS()
-	defer server.Close()
+	t.Cleanup(func() {
+		server.Close()
+	})
 	client := pingv1connect.NewPingServiceClient(server.Client(), server.URL, connect.WithGRPC())
 
 	assertErrorNoTrailers := func(t *testing.T, err error) {
@@ -499,11 +501,13 @@ func TestGRPCMissingTrailersError(t *testing.T) {
 	}
 
 	t.Run("ping", func(t *testing.T) {
+		t.Parallel()
 		request := connect.NewRequest(&pingv1.PingRequest{Number: 1, Text: "foobar"})
 		_, err := client.Ping(context.Background(), request)
 		assertErrorNoTrailers(t, err)
 	})
 	t.Run("sum", func(t *testing.T) {
+		t.Parallel()
 		stream := client.Sum(context.Background())
 		err := stream.Send(&pingv1.SumRequest{Number: 1})
 		assert.Nil(t, err)
@@ -511,17 +515,29 @@ func TestGRPCMissingTrailersError(t *testing.T) {
 		assertErrorNoTrailers(t, err)
 	})
 	t.Run("count_up", func(t *testing.T) {
+		t.Parallel()
 		stream, err := client.CountUp(context.Background(), connect.NewRequest(&pingv1.CountUpRequest{Number: 10}))
 		assert.Nil(t, err)
 		assert.False(t, stream.Receive())
 		assertErrorNoTrailers(t, stream.Err())
 	})
 	t.Run("cumsum", func(t *testing.T) {
+		t.Parallel()
 		stream := client.CumSum(context.Background())
 		err := stream.Send(&pingv1.CumSumRequest{Number: 10})
 		assert.Nil(t, err)
 		_, err = stream.Receive()
 		assertErrorNoTrailers(t, err)
+		assert.Nil(t, stream.CloseReceive())
+	})
+	t.Run("cumsum_empty_stream", func(t *testing.T) {
+		t.Parallel()
+		stream := client.CumSum(context.Background())
+		assert.Nil(t, stream.CloseSend())
+		response, err := stream.Receive()
+		assert.Nil(t, response)
+		assertErrorNoTrailers(t, err)
+		assert.Nil(t, stream.CloseReceive())
 	})
 }
 
