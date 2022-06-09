@@ -59,8 +59,8 @@ func TestServer(t *testing.T) {
 			response, err := client.Ping(context.Background(), request)
 			assert.Nil(t, err)
 			assert.Equal(t, response.Msg, expect)
-			assert.Equal(t, response.Header().Get(handlerHeader), headerValue)
-			assert.Equal(t, response.Trailer().Get(handlerTrailer), trailerValue)
+			assert.Equal(t, response.Header().Values(handlerHeader), []string{headerValue})
+			assert.Equal(t, response.Trailer().Values(handlerTrailer), []string{trailerValue})
 		})
 		t.Run("zero_ping", func(t *testing.T) {
 			request := connect.NewRequest(&pingv1.PingRequest{})
@@ -69,8 +69,8 @@ func TestServer(t *testing.T) {
 			assert.Nil(t, err)
 			var expect pingv1.PingResponse
 			assert.Equal(t, response.Msg, &expect)
-			assert.Equal(t, response.Header().Get(handlerHeader), headerValue)
-			assert.Equal(t, response.Trailer().Get(handlerTrailer), trailerValue)
+			assert.Equal(t, response.Header().Values(handlerHeader), []string{headerValue})
+			assert.Equal(t, response.Trailer().Values(handlerTrailer), []string{trailerValue})
 		})
 		t.Run("large_ping", func(t *testing.T) {
 			// Using a large payload splits the request and response over multiple
@@ -82,8 +82,8 @@ func TestServer(t *testing.T) {
 			response, err := client.Ping(context.Background(), request)
 			assert.Nil(t, err)
 			assert.Equal(t, response.Msg.Text, hellos)
-			assert.Equal(t, response.Header().Get(handlerHeader), headerValue)
-			assert.Equal(t, response.Trailer().Get(handlerTrailer), trailerValue)
+			assert.Equal(t, response.Header().Values(handlerHeader), []string{headerValue})
+			assert.Equal(t, response.Trailer().Values(handlerTrailer), []string{trailerValue})
 		})
 		t.Run("ping_error", func(t *testing.T) {
 			_, err := client.Ping(
@@ -116,8 +116,8 @@ func TestServer(t *testing.T) {
 			response, err := stream.CloseAndReceive()
 			assert.Nil(t, err)
 			assert.Equal(t, response.Msg.Sum, expect)
-			assert.Equal(t, response.Header().Get(handlerHeader), headerValue)
-			assert.Equal(t, response.Trailer().Get(handlerTrailer), trailerValue)
+			assert.Equal(t, response.Header().Values(handlerHeader), []string{headerValue})
+			assert.Equal(t, response.Trailer().Values(handlerTrailer), []string{trailerValue})
 		})
 		t.Run("sum_error", func(t *testing.T) {
 			stream := client.Sum(context.Background())
@@ -134,7 +134,7 @@ func TestServer(t *testing.T) {
 			got, err := stream.CloseAndReceive()
 			assert.Nil(t, err)
 			assert.Equal(t, got.Msg, &pingv1.SumResponse{}) // receive header only stream
-			assert.Equal(t, got.Header().Get(handlerHeader), headerValue)
+			assert.Equal(t, got.Header().Values(handlerHeader), []string{headerValue})
 		})
 	}
 	testCountUp := func(t *testing.T, client pingv1connect.PingServiceClient) { // nolint:thelper
@@ -207,8 +207,8 @@ func TestServer(t *testing.T) {
 			}()
 			wg.Wait()
 			assert.Equal(t, got, expect)
-			assert.Equal(t, stream.ResponseHeader().Get(handlerHeader), headerValue)
-			assert.Equal(t, stream.ResponseTrailer().Get(handlerTrailer), trailerValue)
+			assert.Equal(t, stream.ResponseHeader().Values(handlerHeader), []string{headerValue})
+			assert.Equal(t, stream.ResponseTrailer().Values(handlerTrailer), []string{trailerValue})
 		})
 		t.Run("cumsum_error", func(t *testing.T) {
 			stream := client.CumSum(context.Background())
@@ -291,8 +291,8 @@ func TestServer(t *testing.T) {
 			assert.Equal(t, connectErr.Code(), connect.CodeResourceExhausted)
 			assert.Equal(t, connectErr.Error(), "resource_exhausted: "+errorMessage)
 			assert.Zero(t, connectErr.Details())
-			assert.Equal(t, connectErr.Meta().Get(handlerHeader), headerValue)
-			assert.Equal(t, connectErr.Meta().Get(handlerTrailer), trailerValue)
+			assert.Equal(t, connectErr.Meta().Values(handlerHeader), []string{headerValue})
+			assert.Equal(t, connectErr.Meta().Values(handlerTrailer), []string{trailerValue})
 		})
 	}
 	testMatrix := func(t *testing.T, server *httptest.Server, bidi bool) { // nolint:thelper
