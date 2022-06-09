@@ -354,7 +354,7 @@ func (r *grpcClientReceiver) Receive(message any) error {
 	// need to read the body to EOF.
 	_ = discard(r.duplexCall)
 	mergeHeaders(r.trailer, r.duplexCall.ResponseTrailer())
-	serverErr := grpcErrorFromHeaders(r.bufferPool, r.protobuf, nil, r.trailer)
+	serverErr := grpcErrorFromHeaders(r.bufferPool, r.protobuf, r.header, r.trailer)
 	if serverErr != nil && (errors.Is(err, io.EOF) || !errors.Is(serverErr, errTrailersWithoutGRPCStatus)) {
 		// We've either:
 		//   - Cleanly read until the end of the response body and *not* received
