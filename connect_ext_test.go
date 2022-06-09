@@ -465,7 +465,7 @@ func TestGRPCMarshalStatusError(t *testing.T) {
 	assertInternalError(t, connect.WithGRPCWeb())
 }
 
-func TestGRPCUnaryMissingTrailersError(t *testing.T) {
+func TestGRPCMissingTrailersError(t *testing.T) {
 	t.Parallel()
 
 	trimTrailers := func(handler http.Handler) http.Handler {
@@ -477,50 +477,52 @@ func TestGRPCUnaryMissingTrailersError(t *testing.T) {
 
 	mux := http.NewServeMux()
 	mux.Handle(pingv1connect.NewPingServiceHandler(
-		pingServer{},
+		pingServer{checkMetadata: true},
 	))
 	server := httptest.NewUnstartedServer(trimTrailers(mux))
 	server.EnableHTTP2 = true
 	server.StartTLS()
 	defer server.Close()
+	client := pingv1connect.NewPingServiceClient(server.Client(), server.URL, connect.WithGRPC())
 
-	assertInternalErrorOnSuccessUnary := func(tb testing.TB, opts ...connect.ClientOption) {
-		tb.Helper()
-		client := pingv1connect.NewPingServiceClient(server.Client(), server.URL, opts...)
+	assertErrorNoTrailers := func(t *testing.T, err error) {
+		t.Helper()
+		assert.NotNil(t, err)
+		var connectErr *connect.Error
+		ok := errors.As(err, &connectErr)
+		assert.True(t, ok)
+		assert.Equal(t, connectErr.Code(), connect.CodeInternal)
+		assert.True(
+			t,
+			strings.HasSuffix(connectErr.Message(), "gRPC protocol error: no Grpc-Status trailer"),
+		)
+	}
+
+	t.Run("ping", func(t *testing.T) {
 		request := connect.NewRequest(&pingv1.PingRequest{Number: 1, Text: "foobar"})
 		_, err := client.Ping(context.Background(), request)
-		tb.Log(err)
-		assert.NotNil(t, err)
-		var connectErr *connect.Error
-		ok := errors.As(err, &connectErr)
-		assert.True(t, ok)
-		assert.Equal(t, connectErr.Code(), connect.CodeInternal)
-		assert.True(
-			t,
-			strings.HasSuffix(connectErr.Message(), "server closed the stream without sending trailers"),
-		)
-	}
-
-	assertInternalErrorOnFailedUnary := func(tb testing.TB, opts ...connect.ClientOption) {
-		tb.Helper()
-		client := pingv1connect.NewPingServiceClient(server.Client(), server.URL, opts...)
-		request := connect.NewRequest(&pingv1.FailRequest{Code: int32(connect.CodeResourceExhausted)})
-		_, err := client.Fail(context.Background(), request)
-		tb.Log(err)
-		assert.NotNil(t, err)
-		var connectErr *connect.Error
-		ok := errors.As(err, &connectErr)
-		assert.True(t, ok)
-		assert.Equal(t, connectErr.Code(), connect.CodeInternal)
-		assert.True(
-			t,
-			strings.HasSuffix(connectErr.Message(), "server closed the stream without sending trailers"),
-		)
-	}
-
-	// Only applies to gRPC protocol.
-	assertInternalErrorOnFailedUnary(t, connect.WithGRPC())
-	assertInternalErrorOnSuccessUnary(t, connect.WithGRPC())
+		assertErrorNoTrailers(t, err)
+	})
+	t.Run("sum", func(t *testing.T) {
+		stream := client.Sum(context.Background())
+		err := stream.Send(&pingv1.SumRequest{Number: 1})
+		assert.Nil(t, err)
+		_, err = stream.CloseAndReceive()
+		assertErrorNoTrailers(t, err)
+	})
+	t.Run("count_up", func(t *testing.T) {
+		stream, err := client.CountUp(context.Background(), connect.NewRequest(&pingv1.CountUpRequest{Number: 10}))
+		assert.Nil(t, err)
+		assert.False(t, stream.Receive())
+		assertErrorNoTrailers(t, stream.Err())
+	})
+	t.Run("cumsum", func(t *testing.T) {
+		stream := client.CumSum(context.Background())
+		err := stream.Send(&pingv1.CumSumRequest{Number: 10})
+		assert.Nil(t, err)
+		_, err = stream.Receive()
+		assertErrorNoTrailers(t, err)
+	})
 }
 
 func TestUnavailableIfHostInvalid(t *testing.T) {
